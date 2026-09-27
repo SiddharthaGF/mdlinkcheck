@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # The release action is the one dependency in this repository that can publish. It is pinned by
+  # commit rather than by tag on purpose, and this is what keeps that pin from rotting: Dependabot
+  # reads the pin, compares it against the latest tag, and opens a pull request when they differ.
+  #
+  # `versioning-strategy: increase` bumps the SHA to the newest tag, which is what a major-alias pin
+  # wants. It is not `widen` because that would silently move a pinned commit onto a newer minor
+  # without a pull request to look at.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    labels:
+      - ci
+    groups:
+      # One pull request for the release action, on its own: it is the dependency that can publish,
+      # so it should never arrive bundled with an unrelated bump that a reviewer has to read past.
+      python-semantic-release:
+        patterns:
+          - python-semantic-release
