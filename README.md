@@ -42,6 +42,30 @@ One limitation worth stating rather than discovering:
 - **Heading anchors are not resolved.** A `#fragment` is stripped and the file is checked for
   existence; whether the heading is actually there is not verified.
 
+## Releases
+
+The version is the tag, and the tag is made by a machine. Every push to `main` that carries a
+`feat:`, `fix:` or `perf:` commit produces a `vX.Y.Z` tag and a GitHub release, with a `CHANGELOG.md`
+maintained for you:
+
+```console
+$ git tag -l
+v1.0.0
+```
+
+Two things about it are worth knowing before you add a commit:
+
+- **The commit subject is the version signal**, so the title convention the pull request policy
+  already enforces is what drives the bump. A subject that is not conventional produces no release.
+  That is why the repository is squash-merge only: a merge commit would carry no conventional
+  subject and every merge would look like an empty patch.
+- **Merging is publishing.** There is no pull request between the merge and the release, by design.
+  Nothing is published to PyPI, and nothing adopts this repository by ref, so there is no floating
+  `v1` to keep honest.
+
+`CHANGELOG.md` lists only what a reader cares about: `chore`, `ci`, `test`, `style` and `refactor`
+commits are excluded, because a reader is not looking for them in a changelog.
+
 ## Running the tests
 
 ```bash
