@@ -117,6 +117,33 @@ class TargetsAreFiltered(unittest.TestCase):
         )
         self.assertEqual(mdlinkcheck.check_file(path), [(5, "missing.md")])
 
+    def test_a_reference_definition_is_checked_on_its_own_line(self):
+        path = write(
+            """
+            # Title
+
+            [the docs][docs]
+            [gone][gone]
+
+            [docs]: README.md
+            [gone]: missing.md
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "README.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(7, "missing.md")])
+
+    def test_a_reference_definition_inside_a_list_item_is_checked(self):
+        path = write(
+            """
+            - [one](missing-one.md)
+            - [two](missing-two.md)
+            """
+        )
+        self.assertEqual(
+            mdlinkcheck.check_file(path),
+            [(1, "missing-one.md"), (2, "missing-two.md")],
+        )
+
 
 class CommandLine(unittest.TestCase):
     def test_a_clean_file_exits_zero(self):

@@ -4,9 +4,9 @@
 Only local relative targets are checked. URLs, `mailto:`, `tel:`, `data:` and bare
 fragments belong to somebody else's problem, so they are skipped silently.
 
-Scope, stated so a reader is not misled: inline links and images are checked;
-reference-style links (`[text][ref]`) are not parsed, and heading anchors are
-not resolved. A target that exists is enough, whatever it points at. Code spans
+Scope, stated so a reader is not misled: inline links and images are checked,
+as are reference-style links and their definitions. Heading anchors are not
+resolved. A target that exists is enough, whatever it points at. Code spans
 and fenced blocks are not text, so a syntax example inside them is not a link.
 
 Targets resolve against the markdown file's own directory, never the working
@@ -25,6 +25,11 @@ import sys
 # `![alt](target)` and `[text](target)`. The title that may follow the target inside the
 # parentheses is deliberately not captured: it never affects whether the target exists.
 LINK = re.compile(r"!?\[[^\]]*\]\(\s*(<[^>]*>|[^\s)]+)[^)]*\)")
+
+# A reference definition, `[label]: target`, possibly indented inside a list item. The label is
+# captured whole so a case difference between the use and the definition is the caller's problem,
+# not this tool's: the check is whether the target exists, not whether the reference resolves.
+DEFINITION = re.compile(r"^[ ]{0,3}\[([^\]]+)\]:[ \t]*(\S+)", re.MULTILINE)
 
 # Schemes and shapes that are not this file's business. A bare `//host/path` is protocol
 # relative, and `#frag` points inside the same document.
@@ -47,9 +52,22 @@ def strip_code(text: str) -> str:
 
 
 def iter_targets(text: str):
-    """Yield `(line_number, target)` for every link in `text`, external ones excluded."""
+    """Yield `(line_number, target)` for every inline link in `text`, external ones excluded."""
     for match in LINK.finditer(strip_code(text)):
         target = match.group(1).strip("<>")
+        if EXTERNAL.match(target):
+            continue
+        yield text.count("\n", 0, match.start()) + 1, target
+
+
+def iter_definitions(text: str):
+    """Yield `(line_number, target)` for every reference definition, external ones excluded.
+
+    A definition is reported on the line it is defined, not where it is used, because that is the
+    line a reader has to edit to fix it.
+    """
+    for match in DEFINITION.finditer(strip_code(text)):
+        target = match.group(2).strip("<>")
         if EXTERNAL.match(target):
             continue
         yield text.count("\n", 0, match.start()) + 1, target
@@ -67,9 +85,10 @@ def check_file(path: str) -> list[tuple[int, str]]:
         text = handle.read()
 
     base_dir = os.path.dirname(os.path.abspath(path))
+    found = list(iter_targets(text)) + list(iter_definitions(text))
     broken = [
         (line, target)
-        for line, target in iter_targets(text)
+        for line, target in found
         # A directory counts as satisfied: linking to a folder is a legitimate target.
         if not os.path.exists(resolve(base_dir, target))
     ]
