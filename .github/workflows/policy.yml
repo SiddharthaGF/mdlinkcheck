@@ -28,7 +28,7 @@ jobs:
         with:
           branch-types: feat,fix,docs,chore,ci,test,refactor
 
-  pr-policy:
+  pull-request-policy:
     name: Pull request policy
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -42,6 +42,7 @@ jobs:
           title-min: 15
           title-max: 72
           approved-label: status:approved
+          skip-actors: 'dependabot[bot]'
 
   triage:
     name: Issue triage
