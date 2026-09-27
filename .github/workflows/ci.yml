@@ -1,0 +1,31 @@
+name: CI
+
+# Pinned by version and digest: a required status that flips when GitHub ships a new image is a
+# status nobody trusts.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - name: Run the tests
+        run: python3 -m unittest discover
+      - name: Check this repository's own links
+        run: python3 mdlinkcheck.py README.md
