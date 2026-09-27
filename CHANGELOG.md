@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-09-27)
+
+### Bug Fixes
+
+- Read a link target the way CommonMark reads it
+  ([#12](https://github.com/SiddharthaGF/mdlinkcheck/pull/12),
+  [`161f608`](https://github.com/SiddharthaGF/mdlinkcheck/commit/161f60890a43b6aa671127580b001c3bae709896))
+
+
 ## v1.0.1 (2026-09-27)
 
 ### Bug Fixes
