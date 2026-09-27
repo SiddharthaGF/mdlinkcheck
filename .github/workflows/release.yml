@@ -3,46 +3,48 @@ name: Release
 # Every push to `main` that carries a releasable commit produces a tag and a GitHub release. There is
 # no pull request and no approval between the merge and the release, which is the design of semantic
 # release: merging is publishing.
+#
+# The shape of this file follows the action's own documented example, deliberately, so the two can be
+# read side by side:
+# https://python-semantic-release.readthedocs.io/en/stable/configuration/automatic-releases/github-actions.html
+# What is left out of that example is everything for publishing a package, because nothing here is
+# published anywhere: no distribution artifacts, no PyPI, and therefore no `id-token: write` either.
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
-# Least privilege that still does the job. `contents: write` is the only write the releaser needs: the
-# tag, the changelog commit, the release. `issues` and `pull-requests` are read, because the release
-# notes resolve issue and pull request references through the API. The action's documentation also
-# lists `id-token: write`, which this workflow deliberately does not grant: that is for trusted
-# publishing to PyPI, and nothing here is published anywhere.
+# Least privilege across every job in this workflow. The write is on the job that needs it, not here.
 permissions:
-  contents: write
-  issues: read
-  pull-requests: read
-
-# Not cancellable. A run interrupted between the tag and the release leaves a state the next run will
-# not repair, because semantic release will not release the same commit twice.
-concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    # On the job, not on the workflow, and named after the ref: two pushes to `main` in quick
+    # succession must not race, and a release half way through must not be cancelled.
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: write
-      issues: read
-      pull-requests: read
     steps:
-      # The ref matters as much as the history: the release must come from the branch that triggered
-      # the run, not from whatever the default branch points at when the job starts.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Check out the branch that triggered the workflow, not the default branch. On a push to `main`
+      # they are the same today and would not be on any other branch that ever gets a release rule.
+      - name: Setup | Checkout Repository on Release Branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.ref_name }}
-          fetch-depth: 0
-      # A push that landed while this run was queued would otherwise be swept into a release nobody
-      # judged. Resetting to the run's own commit keeps the release equal to the merge that triggered it.
-      - name: Pin the branch to the commit that triggered this run
-        run: git reset --hard "$GITHUB_SHA"
-      - id: release
+
+      # Force the branch to be at the workflow's own sha. The branch may have moved while this run was
+      # queued, and without this the releaser would sweep a push nobody judged into the release.
+      - name: Setup | Force release branch to be at workflow sha
+        run: |
+          git reset --hard ${{ github.sha }}
+
+      - name: Action | Semantic Version Release
+        id: release
         uses: python-semantic-release/python-semantic-release@b700dbeb1f431a0fcc30a79f3f0869407fe07278 # v10.7.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -55,9 +57,10 @@ jobs:
           # Without this the action looks for `pyproject.toml`, finds nothing, and runs on defaults
           # while appearing to work. There is no `pyproject.toml` here on purpose.
           config_file: releaserc.toml
-      # The action reports what it did, so the run is not a black box: a version, a tag, and the
-      # notes it published, printed into the log of a job that otherwise says nothing.
-      - name: What was released
+
+      # The action's outputs make the run legible. A job whose only output is a container build log is
+      # a job nobody can answer "did it release?" from.
+      - name: Report | What was released
         if: always()
         env:
           RELEASED: ${{ steps.release.outputs.released }}
