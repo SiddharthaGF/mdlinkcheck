@@ -144,6 +144,52 @@ class TargetsAreFiltered(unittest.TestCase):
             [(1, "missing-one.md"), (2, "missing-two.md")],
         )
 
+    def test_parentheses_inside_a_target_do_not_end_it(self):
+        path = write(
+            """
+            [ok](file(1).md)
+            [broken](nope(2).md)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "file(1).md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(2, "nope(2).md")])
+
+    def test_a_percent_encoded_target_is_decoded_before_the_check(self):
+        path = write(
+            """
+            [ok](a%20b.md)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "a b.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [])
+
+    def test_a_wrapped_target_with_spaces_is_read_whole(self):
+        path = write(
+            """
+            [ok](<a b.md>)
+            [broken](<no such file.md>)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "a b.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(2, "no such file.md")])
+
+    def test_an_escaped_paren_is_a_real_paren_in_the_path(self):
+        path = write(
+            """
+            [ok](a\\).md)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "a).md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [])
+
+    def test_a_broken_reported_target_is_the_decoded_path(self):
+        path = write(
+            """
+            [broken](no%20such%20file.md)
+            """
+        )
+        self.assertEqual(mdlinkcheck.check_file(path), [(1, "no such file.md")])
+
 
 class CommandLine(unittest.TestCase):
     def test_a_clean_file_exits_zero(self):

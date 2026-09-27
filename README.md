@@ -29,8 +29,17 @@ reference-style definitions, `[label]: target`, and checks the target. For each 
 relative path**, it resolves against the markdown file's own directory — never against your working
 directory, so the answer is the same from anywhere — and reports it if nothing is there. A definition is
 reported on the line it is defined, not where it is used, because that is the line you have to edit. A
-target that is a directory counts as satisfied, and a `#fragment` or `?query` is stripped before the
-check.
+target that is a directory counts as satisfied.
+
+The target is read the way CommonMark reads it, which matters more than it sounds:
+
+- **Parentheses are balanced.** `[x](file(1).md)` is one target named `file(1).md`, and an escaped
+  `\)` is a real `)` in the path: `[x](a\).md)` names `a).md`.
+- **Percent-encoding is decoded.** `[x](a%20b.md)` names `a b.md`.
+- **A target with spaces must be wrapped in angle brackets.** `[x](<a b.md>)` is the link; `[x](a b.md)`
+  is a link to `a` with the title `b.md`, and reporting `a` as broken is the correct reading.
+- A `#fragment` or `?query` is stripped before the check, and the report names the decoded path, because
+  that is the filename a reader has to go and look at.
 
 It deliberately ignores anything that is not a local path: `http://`, `https://`, `mailto:`, `tel:`,
 `data:`, protocol-relative `//host/path`, and bare `#anchor`. Those are somebody else's problem, and
@@ -78,10 +87,10 @@ the tool's own default, which is not an account.
 python3 -m unittest discover
 ```
 
-Fifteen tests, no network, nothing written outside a temporary directory. They cover the target
+Twenty tests, no network, nothing written outside a temporary directory. They cover the target
 filtering, line numbers in the report, fragments and queries, directory targets, resolution against
-the file's own directory, code spans and fenced blocks, reference-style definitions, and both exit
-codes.
+the file's own directory, code spans and fenced blocks, reference-style definitions, parentheses and
+percent-encoding in targets, and both exit codes.
 
 ## Why this exists
 

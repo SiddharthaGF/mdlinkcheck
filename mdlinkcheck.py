@@ -21,10 +21,12 @@ import argparse
 import os
 import re
 import sys
+from urllib.parse import unquote
 
-# `![alt](target)` and `[text](target)`. The title that may follow the target inside the
-# parentheses is deliberately not captured: it never affects whether the target exists.
-LINK = re.compile(r"!?\[[^\]]*\]\(\s*(<[^>]*>|[^\s)]+)[^)]*\)")
+# The opening of an inline link or image. The target is then read by hand rather than by a pattern:
+# a target may contain balanced parentheses, and a regex that stops at the first `)` would cut
+# `file(1).md` down to `file(1` and report a file that exists as broken.
+LINK_START = re.compile(r"!?\[[^\]]*\]\(")
 
 # A reference definition, `[label]: target`, possibly indented inside a list item. The label is
 # captured whole so a case difference between the use and the definition is the caller's problem,
@@ -51,13 +53,52 @@ def strip_code(text: str) -> str:
     return SPAN.sub(blank, FENCE.sub(blank, text))
 
 
+def read_target(text: str, open_paren: int) -> tuple[str, int]:
+    """Return the target of the link whose `(` is at `open_paren`, and the index after its `)`.
+
+    Parentheses inside the target are balanced rather than terminated at: `file(1).md` is one target,
+    and stopping at the first `)` would report a file that exists as broken. An escaped paren does
+    not open a level. An unterminated link yields whatever was read and the end of the text.
+    """
+    depth = 1
+    index = open_paren + 1
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_paren + 1 : index].strip(), index + 1
+        index += 1
+    return text[open_paren + 1 :].strip(), len(text)
+
+
 def iter_targets(text: str):
     """Yield `(line_number, target)` for every inline link in `text`, external ones excluded."""
-    for match in LINK.finditer(strip_code(text)):
-        target = match.group(1).strip("<>")
-        if EXTERNAL.match(target):
+    scanned = strip_code(text)
+    for match in LINK_START.finditer(scanned):
+        raw, end = read_target(scanned, match.end() - 1)
+        if raw.startswith("<"):
+            # Wrapped in angle brackets, which is how a target with spaces is written.
+            target = raw[1 : raw.find(">")] if ">" in raw else raw[1:]
+        else:
+            # Unwrapped, the target ends at the first space: anything after it is the title.
+            target = raw.split()[0] if raw.split() else ""
+        # An escaped paren was only escaped so it would not close the link, so it is a real paren in
+        # the path: `[x](a\).md)` names `a).md`.
+        target = clean(target.replace("\\(", "(").replace("\\)", ")"))
+        if not target or EXTERNAL.match(target):
             continue
         yield text.count("\n", 0, match.start()) + 1, target
+
+
+def clean(target: str) -> str:
+    """Drop the fragment and query, and decode percent-encoding: `[x](a%20b.md)` names `a b.md`."""
+    return unquote(target.split("#", 1)[0].split("?", 1)[0])
 
 
 def iter_definitions(text: str):
@@ -67,16 +108,15 @@ def iter_definitions(text: str):
     line a reader has to edit to fix it.
     """
     for match in DEFINITION.finditer(strip_code(text)):
-        target = match.group(2).strip("<>")
+        target = clean(match.group(2).strip("<>"))
         if EXTERNAL.match(target):
             continue
         yield text.count("\n", 0, match.start()) + 1, target
 
 
 def resolve(base_dir: str, target: str) -> str:
-    """Strip the fragment and query, then resolve against `base_dir`."""
-    path = target.split("#", 1)[0].split("?", 1)[0]
-    return os.path.normpath(os.path.join(base_dir, path))
+    """Resolve an already-cleaned target against `base_dir`."""
+    return os.path.normpath(os.path.join(base_dir, target))
 
 
 def check_file(path: str) -> list[tuple[int, str]]:
