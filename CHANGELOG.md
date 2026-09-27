@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-09-27)
+
+### Bug Fixes
+
+- Author the release commit as a bot, not as an organization
+  ([#18](https://github.com/SiddharthaGF/mdlinkcheck/pull/18),
+  [`e1967f6`](https://github.com/SiddharthaGF/mdlinkcheck/commit/e1967f6b828b2308f0d3c3e8377096d019f5a02d))
+
+
 ## v1.0.2 (2026-09-27)
 
 ### Bug Fixes
