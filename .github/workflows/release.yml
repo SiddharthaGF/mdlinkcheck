@@ -49,11 +49,13 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # The committer, not the author of the pull request. The tool's own default is
-          # `semantic-release <semantic-release>`, which is not a GitHub account, so a release commit
-          # would show up attributed to nobody. These are the identity values the action's
-          # documentation uses, and they resolve to the GitHub Actions bot.
-          git_committer_name: github-actions
-          git_committer_email: actions@users.noreply.github.com
+          # `semantic-release <semantic-release>`, which is no account at all, and the action's
+          # documented example is `github-actions <actions@users.noreply.github.com>`, which resolves
+          # to the `actions` *organization* — an identity that is not a bot and is shared with every
+          # other workflow. These are the address and name GitHub itself commits under, and a commit
+          # carrying it is linked to the bot in the log.
+          git_committer_name: github-actions[bot]
+          git_committer_email: github-actions[bot]@users.noreply.github.com
           # Without this the action looks for `pyproject.toml`, finds nothing, and runs on defaults
           # while appearing to work. There is no `pyproject.toml` here on purpose.
           config_file: releaserc.toml
