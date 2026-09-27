@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-09-27)
+
+### Bug Fixes
+
+- Stop attributing a release note to the wrong pull request
+  ([#20](https://github.com/SiddharthaGF/mdlinkcheck/pull/20),
+  [`73a1aa2`](https://github.com/SiddharthaGF/mdlinkcheck/commit/73a1aa254071dbc73b911e65f7d749717c5ace8b))
+
+
 ## v1.0.3 (2026-09-27)
 
 ### Bug Fixes
