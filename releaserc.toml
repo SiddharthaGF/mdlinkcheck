@@ -1,8 +1,8 @@
 # Python Semantic Release configuration.
 #
-# This file is NOT auto-discovered: PSR reads `pyproject.toml` by default, so every invocation must
-# pass `-c releaserc.toml`. The workflow does. A local `semantic-release` run that forgets it will
-# silently use defaults, which is exactly how this file's `commit_message` went untested once.
+# This file is NOT auto-discovered: PSR reads `pyproject.toml` by default, so a bare
+# `semantic-release` run silently uses defaults. The workflow passes it as the action's
+# `config_file`, which is the same thing as `-c releaserc.toml`; a local run must pass `-c` by hand.
 #
 # There is no `pyproject.toml` in this repository, on purpose: the tool is a flat module, not a
 # distributed package, so there is no project version to stamp and no build backend to ask. The git

@@ -65,6 +65,12 @@ Two things about it are worth knowing before you add a commit:
 `CHANGELOG.md` lists only what a reader cares about: `chore`, `ci`, `test`, `style` and `refactor`
 commits are excluded, because a reader is not looking for them in a changelog.
 
+The release itself is made by the official
+[`python-semantic-release` action](https://github.com/marketplace/actions/python-semantic-release),
+pinned by commit. It runs in a container, so this repository needs no Python releaser installed and no
+version of it pinned here. The commit it pushes is authored by the GitHub Actions bot rather than by
+the tool's own default, which is not an account.
+
 ## Running the tests
 
 ```bash

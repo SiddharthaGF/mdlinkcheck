@@ -7,12 +7,15 @@ on:
   push:
     branches: [main]
 
-# The only workflow here that writes. `contents` moves the tag and creates the release; the other two
-# are what the GitHub release notes need when they link issues and pull requests.
+# Least privilege that still does the job. `contents: write` is the only write the releaser needs: the
+# tag, the changelog commit, the release. `issues` and `pull-requests` are read, because the release
+# notes resolve issue and pull request references through the API. The action's documentation also
+# lists `id-token: write`, which this workflow deliberately does not grant: that is for trusted
+# publishing to PyPI, and nothing here is published anywhere.
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
+  issues: read
+  pull-requests: read
 
 # Not cancellable. A run interrupted between the tag and the release leaves a state the next run will
 # not repair, because semantic release will not release the same commit twice.
@@ -26,30 +29,44 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
+      issues: read
+      pull-requests: read
     steps:
+      # The ref matters as much as the history: the release must come from the branch that triggered
+      # the run, not from whatever the default branch points at when the job starts.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # Semantic release reads the whole history and the existing tags itself, and refuses to
-          # work against a shallow clone.
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
-          # The changelog commit has to reach `main`, and that push is the only write this job does.
-          persist-credentials: true
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      # A push that landed while this run was queued would otherwise be swept into a release nobody
+      # judged. Resetting to the run's own commit keeps the release equal to the merge that triggered it.
+      - name: Pin the branch to the commit that triggered this run
+        run: git reset --hard "$GITHUB_SHA"
+      - id: release
+        uses: python-semantic-release/python-semantic-release@b700dbeb1f431a0fcc30a79f3f0869407fe07278 # v10.7.0
         with:
-          python-version: '3.13'
-      # Pinned rather than ranged: a release pipeline that changes version under itself is a release
-      # pipeline nobody can reason about after the fact.
-      - name: Install semantic release
-        run: |
-          set -euo pipefail
-          python -m pip install --quiet --disable-pip-version-check \
-            'python-semantic-release==10.7.0'
-          semantic-release --version
-      # `-c releaserc.toml` is not optional. Without it semantic release reads `pyproject.toml`,
-      # finds nothing, and runs on its defaults while appearing to work.
-      - name: Release
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # The committer, not the author of the pull request. The tool's own default is
+          # `semantic-release <semantic-release>`, which is not a GitHub account, so a release commit
+          # would show up attributed to nobody. These are the identity values the action's
+          # documentation uses, and they resolve to the GitHub Actions bot.
+          git_committer_name: github-actions
+          git_committer_email: actions@users.noreply.github.com
+          # Without this the action looks for `pyproject.toml`, finds nothing, and runs on defaults
+          # while appearing to work. There is no `pyproject.toml` here on purpose.
+          config_file: releaserc.toml
+      # The action reports what it did, so the run is not a black box: a version, a tag, and the
+      # notes it published, printed into the log of a job that otherwise says nothing.
+      - name: What was released
+        if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: semantic-release -c releaserc.toml version
+          RELEASED: ${{ steps.release.outputs.released }}
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+          LINK: ${{ steps.release.outputs.link }}
+        run: |
+          if [ "$RELEASED" = true ]; then
+            printf 'released %s as %s: %s\n' "$VERSION" "$TAG" "$LINK"
+          else
+            printf 'nothing releasable since the last tag; the line stays at %s\n' "${VERSION:-unknown}"
+          fi
