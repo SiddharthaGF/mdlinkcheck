@@ -81,6 +81,14 @@ pinned by commit. It runs in a container, so this repository needs no Python rel
 version of it pinned here. The commit it pushes is authored by the GitHub Actions bot rather than by
 the tool's own default, which is not an account.
 
+That pin is kept current by Dependabot, which opens a pull request when the action publishes a new
+tag. **What the pin does and does not guarantee is worth stating once:** it fixes the action's code and
+the exact `python-semantic-release` version inside it, because that is what its `requirements.txt`
+pins. It does not fix the base image, which the runner resolves from a floating tag at build time, or
+the action's own transitive dependencies, which the image resolves from PyPI on every run. Two runs a
+month apart with the same pin can therefore execute different code. That is inherent to how a container
+action is built, not something this repository can configure away.
+
 ## Running the tests
 
 ```bash
