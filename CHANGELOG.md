@@ -1,6 +1,6 @@
 # CHANGELOG
 
-<!-- version list -->
+<!-- towncrier release notes start -->
 
 ## v1.0.6 (2026-09-28)
 

@@ -1,0 +1,79 @@
+[tool.towncrier]
+# Towncrier builds the changelog from "news fragments": one small file per change, added in the
+# pull request that makes the change. That is the whole point of using it here.
+#
+# `python-semantic-release` builds its changelog by walking git history and opening a section each
+# time a commit carries a tag, so a tag IS a release boundary. The release-candidate tags were not
+# releases and the tool could not tell: `v1.0.6-rc.1` and `v1.0.6-rc.2` sat on two of the three
+# commits v1.0.6 contained, their entries were attributed to sections that are never published, and
+# the published v1.0.6 changelog came out empty. Towncrier never reads git history, so there is no
+# boundary to get wrong. `issues/31` and `issues/29` are the two failures that motivated it.
+#
+# `towncrier.toml` rather than `pyproject.toml` for the same reason `releaserc.toml` is a separate
+# file: this repository is a flat module, not a distributed package, and there is deliberately no
+# `pyproject.toml` to put a `[project]` table in.
+
+name = "mdlinkcheck"
+
+# The news file, and the directory the fragments live in. `newsfragments/` is the towncrier default
+# and is spelled out here so the two names in this repository — `releaserc.toml` and
+# `newsfragments/` — are both visible in one place.
+filename = "CHANGELOG.md"
+directory = "newsfragments"
+
+# The changelog this repository already had, reproduced exactly. Towncrier infers header levels from
+# a markdown `title_format`: the title renders at the level written here and each category one level
+# below, which is what produced `## v1.0.6` over `### Bug Fixes` before.
+title_format = "## v{version} ({project_date})"
+
+# Where a fragment's issue number points. Fragments are named after the pull request that carries
+# them, so this has to be the pull request URL and not the issue URL, and the two are different
+# things on a repository that closes issues with `Closes #N`.
+issue_format = "[{issue}](https://github.com/SiddharthaGF/mdlinkcheck/pull/{issue})"
+
+# Long lines, no rewrapping. The changelog this replaces had one bullet per wrapped line at
+# whatever width the text wanted, and rewrapping is a diff on every entry.
+wrap = false
+
+# A fragment is named after a pull request number and nothing else. This is what makes an
+# unreferenced fragment, a fragment named after a branch, and a fragment named `fix.fix` all fail
+# the build rather than publish a link to a pull request that does not exist.
+issue_pattern = "\\d+"
+
+# Configure the ignore list at all, even empty, and towncrier also fails on invalid filenames rather
+# than ignoring them silently. The files towncrier always ignores — `README.md`, `.gitkeep` and the
+# rest — are ignored regardless, so this does not need to list them.
+ignore = []
+
+# Types, in the order they should appear in a release. The array form is used rather than
+# `[tool.towncrier.fragment.*]` tables because TOML tables are unordered and would render these
+# alphabetically, putting "Other Tasks" between "Features" and "Bug Fixes".
+#
+# The names are the commit types this repository already uses, so a fragment and its commit read the
+# same. A pull request that changes nothing a user can observe takes `chore`, and `chore` is the one
+# type whose content is not published: the changelog is for the person using the tool, and an entry
+# saying that CI was tidied is noise in it.
+[[tool.towncrier.type]]
+directory = "feat"
+name = "Features"
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Bug Fixes"
+
+[[tool.towncrier.type]]
+directory = "doc"
+name = "Documentation"
+
+[[tool.towncrier.type]]
+directory = "removal"
+name = "Deprecations and Removals"
+
+[[tool.towncrier.type]]
+directory = "chore"
+name = "Other Tasks"
+showcontent = false
+
+[[tool.towncrier.type]]
+directory = "misc"
+name = "Miscellaneous"

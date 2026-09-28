@@ -1,247 +1,219 @@
 name: Release
 
-# Merging accumulates; publishing is a separate human decision. A push to `main` that carries a
-# releasable commit produces a *release candidate* — a `v1.1.0-rc.N` tag and a GitHub release marked
-# as a prerelease, which nobody is notified about. A maintainer then dispatches this workflow by hand
-# from the Actions tab to release what has accumulated, as `v1.1.0` and a normal release.
+# Merging accumulates. Publishing is a separate human decision.
 #
-#   | Run | Trigger             | Command                                                    | Result                              |
-#   | --- | ------------------- | ---------------------------------------------------------- | ----------------------------------- |
-#   | RC  | `push` to `main`    | `semantic-release -c releaserc.toml version --as-prerelease` | `v1.1.0-rc.N`, GitHub prerelease    |
-#   | Cut | `workflow_dispatch` | `semantic-release -c releaserc.toml version`                | `v1.1.0` for the whole accumulation |
+# A push to `main` that carries a releasable change produces nothing: the preview job below works
+# out what WOULD be released and writes it on a tracking issue. It creates no tag, no commit and no
+# release, and it has no permission to. A maintainer reads the tracking issue and, when the work is
+# worth releasing, dispatches this workflow by hand. The cut job then computes the version, hands it
+# to `towncrier`, and lets the releaser tag it once.
 #
-# The cut needs no flag and no special branch state, but the reason is NOT that it promotes the
-# pending candidate: it does not. In
-# `semantic_release/version/algorithm.py` of 10.7.0, a plain `version` run has `prerelease` false, so
-# `latest_version` is resolved to the last FULL release (~line 319) and never to the newest `-rc.N`
-# tag; `_increment_version()` is consequently called with a base that is not a prerelease. The
-# finalizing path is guarded by `if latest_version.is_prerelease:` (~line 175), which on a cut is
-# always false: the "Finalizing the prerelease version..." log and `finalize_version()` are not on
-# this path at all. A cut with `v1.0.5` and `v1.1.0-rc.1` in history arrives at `1.1.0` by bumping
-# `1.0.5` with a minor bump. The guard and the log line were read out of the installed source; the
-# numbers come from `--print` runs against a real 10.7.0 install.
+#   | Run     | Trigger             | Writes to the repository |
+#   | ------- | ------------------- | ------------------------ |
+#   | preview | `push` to `main`    | nothing                  |
+#   | cut     | `workflow_dispatch` | tag, changelog, release  |
 #
-# The number comes out the same either way, which is why the wrong mechanism survived four releases.
-# The consequence that actually matters is in .github/RELEASING.md, "The cut absorbs everything after
-# the candidate": a candidate tag is a bookmark saying work has accumulated and is releasable, not a
-# snapshot of what the cut will contain.
+# WHY THERE ARE NO RELEASE-CANDIDATE TAGS ANY MORE
 #
-# Nothing here scripts around the arithmetic, and nothing may: a step that forced a number would
-# fight the tool's own calculation from the last full release, and the candidate tag is not an input
-# to that calculation, so a forced number would have nothing to agree with.
+# This flow used to mint a `v1.0.6-rc.1` on every releasable merge and finalize it on the cut. The
+# tags turned out to be incompatible with a correct changelog, and not in a way a setting could fix:
+# `python-semantic-release` builds its changelog by walking history and opening a section each time a
+# commit carries a tag, so a tag IS a release boundary. The candidate tags were not releases and the
+# tool could not tell. `v1.0.6-rc.1` and `v1.0.6-rc.2` sat on two of the three commits that v1.0.6
+# contained; their entries were attributed to sections that are never published, and the published
+# v1.0.6 changelog came out empty. The two candidate tags left in this repository's history are
+# harmless: both are ancestors of `v1.0.6`, so they sit on the far side of the boundary.
 #
-# What is left out of this file is everything for publishing a package, because nothing here is
-# published anywhere: no distribution artifacts, no PyPI, and therefore no `id-token: write` either.
+# `towncrier` builds the changelog from the files in `newsfragments/` and never reads git history, so
+# there is no boundary to get wrong. See towncrier.toml and .github/RELEASING.md.
+#
+# NEITHER JOB USES THE GITHUB ACTION
+#
+# The action was here because the preview job needed `--as-prerelease` and the action has no
+# arbitrary-argument passthrough: its inputs are config_file, directory, github_token,
+# git_committer_name, git_committer_email, no_operation_mode, ssh_public_signing_key,
+# ssh_private_signing_key, strict, verbosity, prerelease, prerelease_token, force, commit, tag, push,
+# changelog, vcs_release, build and build_metadata. GitHub Actions warns on an unrecognised input and
+# continues, so passing one anyway produces a green run that does the wrong thing. The preview job no
+# longer releases at all, so it does not need the flag, and with the asymmetry gone neither job has a
+# reason to run a container to call a CLI that is already installed by the two lines below.
 on:
   push:
     branches:
       - main
   # The cut. Dispatched by a maintainer from the Actions tab, on `main` — see .github/RELEASING.md.
-  # No inputs: the version is computed by the tool, never typed by a human, so there is nothing here
-  # that a bad keystroke could turn into a bad tag.
   workflow_dispatch:
 
-# Least privilege across every job in this workflow. The write is on the jobs that need it, not here.
+# Least privilege at the workflow level. Each job takes exactly the one grant it needs, and the two
+# grants are different: only the cut can write to this repository.
 permissions:
   contents: read
 
-# ONE group for both jobs, named after the ref, so an RC run and a cut run can never overlap even if
-# someone dispatches a cut while a push is still being released. `cancel-in-progress: false` is the
+# ONE group for both jobs, named after the ref, so a preview and a cut can never overlap even if
+# someone dispatches a cut while a push is still being previewed. `cancel-in-progress: false` is the
 # other half: a release half way through must not be cancelled by the next event, which would leave a
 # tag written and a release body missing.
 concurrency:
   group: ${{ github.workflow }}-release-${{ github.ref_name }}
   cancel-in-progress: false
 
-# Two jobs rather than one job with two guarded steps. A single job would need the RC step, the cut
-# step *and* both report steps to carry an `if:`, so every reader of the file would have to hold four
-# conditions in their head to answer "what runs on this event". Two jobs make each run's path
-# straight-line.
 jobs:
-  release-candidate:
-    name: Release candidate
-    # The push is the only thing that can mint a candidate. Without this the dispatch would mint one
-    # too, on a ref that may hold no releasable commit at all.
+  preview:
+    name: Preview
+    # The push is the only thing that previews. Without this the dispatch would preview too, on a
+    # branch that may hold no releasable commit at all.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      # Needed to write the tag, the `chore(release)` commit and the prerelease. Nothing else: no
-      # packages, no pages, no deployments. This job also installs a pinned dependency, which is
-      # accepted rather than free — see the note on that step.
-      contents: write
+      # The ONLY thing this job can do is comment on the tracking issue. It has no `contents: write`,
+      # so it cannot create a tag, a commit or a release even by accident — which is the point. The
+      # preview is a read of the repository and a write to a conversation, and the permissions now say
+      # exactly that. This is the job that used to hold `contents: write` and derived its own
+      # version from a git tag diff; it no longer derives anything.
+      issues: write
     steps:
-      # Check out `main` by name rather than `${{ github.ref_name }}`. On a push to `main` they are
-      # the same, but naming the ref states the invariant the cut run below also relies on: a
-      # candidate is always accumulated on `main`, whatever ref the run was started from.
       - name: Setup | Checkout Repository on Release Branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          # The shallow default fetches no tags, and this run has to diff the tag list before and
-          # after the release to work out what it minted. The `Release | Mint a release candidate`
-          # step below spells out what goes wrong without this line; do not drop it along with the
-          # rest of the checkout options.
+          # The version calculation needs the tags: it compares the computed version against the last
+          # published one to decide whether there is anything to release at all. A shallow checkout
+          # fetches no tags by default. `semantic-release` unshallows the repository when it runs —
+          # that has been true since v10.5.0, which is why `fetch-depth: 0` is not set — but relying on
+          # a side effect of the tool to notice a tag we already asked about is how the previous
+          # version of this file came to report a release that never happened.
           fetch-tags: true
 
       # Force the branch to be at the workflow's own sha. The branch may have moved while this run was
-      # queued, and without this the releaser would sweep a push nobody judged into the release.
+      # queued, and the version reported would otherwise be one commit ahead of what was reviewed.
       - name: Setup | Force release branch to be at workflow sha
         run: |
           git reset --hard ${{ github.sha }}
 
-      # The action's `git_committer_name` / `git_committer_email` inputs are unavailable here because
-      # this job does not use the action (see the asymmetry note above the `run` step below), and the
-      # release commit has to be authored by the same person the action would have named — not by
-      # PSR's own default, which is `semantic-release <semantic-release>`, i.e. no account at all,
-      # and not by the action's documented example, which resolves to the `actions` *organization*:
-      # an identity that is not a bot and is shared with every other workflow in every repository.
-      # `--local` writes into this checkout's `.git/config`, which outranks the global and system
-      # config, so it is the identity git resolves for the release commit.
-      - name: Setup | Configure the release committer
-        run: |
-          git config --local user.name 'AiluraKitty'
-          git config --local user.email '334750167+AiluraKitty@users.noreply.github.com'
-
       # The same pinned sha CI uses. Reusing it on purpose: one Python toolchain for the repository,
-      # so a release that behaves differently from the tested code is not possible here. The version
-      # is quoted because YAML would otherwise read `3.13` as the float 3.13.
+      # so a release cannot fail on a version nobody else runs.
       - name: Setup | Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.13'
 
-      # Exact pin, no range and no unpinned install. This job holds `contents: write` and therefore
-      # resolves a dependency from the network while holding the credential that can push tags, which
-      # is a real tradeoff and is accepted deliberately: the alternative was leaving the release on
-      # an action that cannot express `--as-prerelease`. The pin is what keeps the exposure bounded
-      # — the same code the last four releases were produced with — and Dependabot does not touch
-      # this file, so the pin does not move on its own.
-      - name: Setup | Install python-semantic-release
+      # Both tools are exact pins. This job holds `issues: write` rather than `contents: write`, so
+      # the pin is not guarding a tag here; it is here so the preview a maintainer reads is the same
+      # one the cut will produce, and a drifting dependency would make the preview a lie.
+      - name: Setup | Install the release toolchain
         run: |
-          python -m pip install "python-semantic-release==10.7.0"
+          python -m pip install "python-semantic-release==10.7.0" "towncrier==26.9.0"
 
-      # WHY THIS RUNS THE CLI INSTEAD OF THE ACTION. The action's complete input list is
-      # config_file, directory, github_token, git_committer_name, git_committer_email,
-      # no_operation_mode, ssh_public_signing_key, ssh_private_signing_key, strict, verbosity,
-      # prerelease, prerelease_token, force, commit, tag, push, changelog, vcs_release, build,
-      # build_metadata. There is no arbitrary-argument passthrough, so `--as-prerelease` cannot be
-      # passed through it. The `prerelease` input is NOT a substitute: it maps to the CLI's
-      # `--prerelease`, which forces a new version even when the level bump is `NO_RELEASE`, which
-      # would make `rc.N` count pushes instead of changes. The cut run below uses the action
-      # precisely because the action *can* express what the cut needs; the asymmetry is deliberate.
-      #
-      # `--no-changelog` here and `changelog: 'true'` below are the same policy from both sides: the
-      # cut owns the changelog. That it comes out right is not obvious and is worth stating — in the
-      # cut run `prerelease` is false, so PSR resolves `latest_version` to the last FULL release
-      # (say `v1.0.5`), not to the most recent candidate (`algorithm.py`, the `latest_version`
-      # selection, ~line 319). The cut's changelog therefore covers the whole accumulation since the
-      # last published version, not only the commits after `v1.1.0-rc.3`, and the RC runs write
-      # nothing, so no entry is ever written twice. Same root cause as the version number, which is
-      # why both are explained once, in the header block above.
-      - name: Release | Mint a release candidate
-        id: release
+      - name: Preview | What the next cut would release
+        id: preview
+        shell: bash
         env:
           # `releaserc.toml` declares `[semantic_release.remote] token = {env = "GH_TOKEN"}`, so the
           # environment variable name is part of the configuration, not a convention.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
-          # `-c` is a TOP-LEVEL flag and must come before the subcommand. `semantic-release version
-          # -c releaserc.toml` is wrong and fails on argument parsing. Leave this order alone.
-          #
-          # There is deliberately no `semantic-release publish` after this: `semantic-release version`
-          # already performs the full sequence (version stamping, changelog, build, commit, tag, push,
-          # VCS release). A second command would be at best a no-op and at worst a second attempt at
-          # the same tag.
           set -uo pipefail
-          head_before="$(git rev-parse HEAD)"
-          semantic-release -c releaserc.toml version --as-prerelease --no-changelog
-          status=$?
-          head_after="$(git rev-parse HEAD)"
-          # The action's `released` / `version` / `tag` / `link` outputs do not exist for a direct
-          # run, so the outcome is derived from what a release necessarily leaves behind: a commit
-          # and a tag on it.
-          #
-          # It used to be derived by diffing the tag list before and after, and that was wrong. The
-          # checkout is shallow and fetches no tags (`fetch-tags: false`, `--depth=1`, `--no-tags`),
-          # so the "before" list was EMPTY, and `semantic-release` then unshallowed the repository
-          # itself, which brought in every tag in the project's history. The diff therefore
-          # contained all of them and the first one alphabetically won: a run that had really
-          # minted `v1.0.6-rc.1` reported `1.0.0 as v1.0.0`. Do not go back to the tag list.
-          #
-          # HEAD is the signal, and it has to be *movement*, not presence. This job pushes its own
-          # release commit to `main`, which triggers another run of this workflow; that run checks
-          # out a commit that already carries a tag, and finding a tag on HEAD there would be a
-          # release that never happened. PSR commits exactly when it releases, so a moved HEAD is
-          # the one condition that is true when it released and false when it did not.
-          new_tag=""
-          if [ "$head_after" != "$head_before" ]; then
-            new_tag="$(git tag --points-at HEAD | head -n 1 | tr -d '[:space:]')"
-          fi
-          if [ -n "$new_tag" ]; then
-            printf 'released=true\n' >> "$GITHUB_OUTPUT"
-            # `tag_format = "v{version}"` is the whole of the tag's shape, so the version is the tag
-            # minus its leading `v`. A prerelease tag yields the prerelease version, e.g. `1.1.0-rc.3`.
-            printf 'version=%s\n' "${new_tag#v}" >> "$GITHUB_OUTPUT"
-            printf 'tag=%s\n' "$new_tag" >> "$GITHUB_OUTPUT"
-            # A GitHub release, prerelease or not, always lives at this path for its repository and
-            # tag, so the link is derived rather than read from an output that does not exist. An
-            # empty link is worse than a constructed one: it looks like a failed run that succeeded.
-            printf 'link=%s\n' "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${new_tag}" >> "$GITHUB_OUTPUT"
-          else
-            printf 'released=false\n' >> "$GITHUB_OUTPUT"
-            printf 'version=\n' >> "$GITHUB_OUTPUT"
-            printf 'tag=\n' >> "$GITHUB_OUTPUT"
-            printf 'link=\n' >> "$GITHUB_OUTPUT"
-            printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
-          fi
-          # Where the line stands, for the no-release report below. Sorted by version, not by date, so
-          # an `rc` cannot sort above the release it belongs to.
-          printf 'current=%s\n' "$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)" >> "$GITHUB_OUTPUT"
-          # Still exit non-zero when the tool did, so a broken release fails the job loudly instead of
-          # reporting "nothing releasable" for a crash.
-          exit "$status"
 
-      # The action's outputs make the run legible, and so do these. A job whose only output is a
-      # container build log is a job nobody can answer "did it release?" from. The wording names the
-      # mode, because a tag appearing on a push is otherwise indistinguishable from a release
-      # appearing on a push — which is the confusion this whole workflow exists to remove.
-      - name: Report | What was released
+          # The last PUBLISHED version, which is not the same as the last tag. This job creates no
+          # candidate tags any more, so the two are equal, but filtering `-rc` keeps the comparison
+          # honest if a tag is ever added by hand: a comparison against `v1.0.6-rc.2` would report
+          # 1.0.6 as "already released" and the preview would look permanently empty.
+          last_full="$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -v -- '-rc' | head -n 1)"
+          if [ -z "$last_full" ]; then
+            printf '::error::no published tag found; cannot tell a new version from the current one\n'
+            exit 1
+          fi
+
+          # `--print` is a dry run: it computes the version and exits without writing, committing,
+          # tagging, pushing or releasing. That is the whole design of this job. The output is the
+          # bare version on its own line; the tool's own logging goes to stderr and is dropped so the
+          # value can be used directly.
+          version="$(semantic-release -c releaserc.toml version --print 2>/dev/null | tail -n 1)"
+
+          # Comparing against the last published version is how "nothing to release" is decided,
+          # rather than grepping the log for the tool's own wording. A `chore:` push leaves the
+          # computed version equal to the published one, and that is a no-op, not a failure.
+          if [ "$version" = "${last_full#v}" ]; then
+            printf 'pending=false\n' >> "$GITHUB_OUTPUT"
+            printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+            printf 'published=%s\n' "$last_full" >> "$GITHUB_OUTPUT"
+            printf '::notice::nothing releasable since %s; the next cut would change nothing\n' "$last_full"
+            exit 0
+          fi
+
+          printf 'pending=true\n' >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'published=%s\n' "$last_full" >> "$GITHUB_OUTPUT"
+
+          # `towncrier build --draft` renders the changelog to stdout and writes nothing: it does
+          # not touch CHANGELOG.md and it does not consume the fragments. This is the changelog the
+          # cut would write, produced by the same tool and the same fragments, without a version
+          # being committed anywhere.
+          printf '### The next cut would release `%s`\n\n' "$version" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Pending since `%s`. Changelog as it would be written:\n\n' "$last_full" >> "$GITHUB_STEP_SUMMARY"
+          towncrier build --config towncrier.toml --draft --version "$version" 2>/dev/null \
+            | tail -n +2 >> "$GITHUB_STEP_SUMMARY"
+          printf '\nFragments waiting: %s\n' \
+            "$(find newsfragments -type f -name '*.md' | wc -l | tr -d ' ')" >> "$GITHUB_STEP_SUMMARY"
+
+      # The tracking issue is the signal. It replaced the candidate tags, which had to go: a tag is a
+      # release boundary as far as the changelog is concerned, and a boundary per merge is what made
+      # the published v1.0.6 notes empty.
+      #
+      # One issue, reused. Creating a new one per push would make the list of pending work the
+      # longest-read page in the repository, and the question this answers is always the same one:
+      # what is waiting, and has it changed.
+      - name: Report | Post the preview to the tracking issue
         if: always()
         env:
-          RELEASED: ${{ steps.release.outputs.released }}
-          VERSION: ${{ steps.release.outputs.version }}
-          TAG: ${{ steps.release.outputs.tag }}
-          LINK: ${{ steps.release.outputs.link }}
-          CURRENT: ${{ steps.release.outputs.current }}
-          STATUS: ${{ steps.release.outputs.status }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PENDING: ${{ steps.preview.outputs.pending }}
+          VERSION: ${{ steps.preview.outputs.version }}
+          PUBLISHED: ${{ steps.preview.outputs.published }}
         run: |
-          if [ "$RELEASED" = true ]; then
-            printf 'released a release candidate: %s as %s: %s\n' "$VERSION" "$TAG" "$LINK"
-            printf 'this is a prerelease and nothing is announced; cut it when the work is ready\n'
+          set -uo pipefail
+          # The label is what finds the issue. It is created here rather than assumed, because a
+          # workflow that fails on a missing label is a workflow that needs a manual step before it
+          # can ever work again.
+          gh label create status:pendiente --color 0E8A16 \
+            --description "Work accumulated on main and waiting for a cut" 2>/dev/null || true
+
+          issue="$(gh issue list --label status:pendiente --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [ "$PENDING" != "true" ]; then
+            body="Nothing releasable since \`${PUBLISHED}\`. The next cut would change nothing."
           else
-            printf 'nothing releasable since the last tag; the line stays at %s\n' "${CURRENT:-unknown}"
-            printf 'no candidate was needed (tool exit %s) and the previous one is still the pending cut\n' "${STATUS:-unknown}"
+            body="$(printf 'A cut would release **%s**, on top of `%s`.\n\n### Changelog as it would be written\n\n' \
+              "$VERSION" "$PUBLISHED"
+              towncrier build --config towncrier.toml --draft --version "$VERSION" 2>/dev/null \
+                | tail -n +2)"
+          fi
+
+          if [ -z "$issue" ]; then
+            printf '## Pending release\n\n%s\n' "$body" \
+              | gh issue create --title "Pending release" --label status:pendiente --body-file -
+            printf 'opened a tracking issue for the pending work\n'
+          else
+            printf '%s\n' "$body" | gh issue comment "$issue" --body-file -
+            printf 'recorded the preview on issue #%s\n' "$issue"
           fi
 
   cut:
     name: Cut release
-    # The human decision, and the only path to a `vX.Y.Z` tag that is not a prerelease.
+    # The human decision, and the only path to a `vX.Y.Z` tag.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
-      # The same single write as the RC job, for the same reason. It is a per-job grant because
-      # nothing else in this workflow pushes anything.
+      # The single write, and it is a per-job grant because nothing else in this workflow pushes
+      # anything. The preview job above holds `issues: write` instead and cannot do this.
       contents: write
     steps:
       # A cut dispatched from any other ref would compute its version from a branch that no release
-      # rule matches, and the tool's answer to that is a no-op that reads like a successful cut in
-      # the log. Fail loudly instead, before anything has been written. This is what keeps the cut
-      # on the same ref the RC run accumulated on.
+      # rule matches, and the tool's answer to that is a no-op that reads like a successful cut in the
+      # log. Fail loudly instead, before anything has been written.
       - name: Setup | Refuse a cut that is not on main
         run: |
           if [ "${{ github.ref_name }}" != "main" ]; then
-            printf 'cut refused: dispatched on %s, but candidates accumulate on main\n' "${{ github.ref_name }}"
+            printf 'cut refused: dispatched on %s, but pending work accumulates on main\n' "${{ github.ref_name }}"
             exit 1
           fi
 
@@ -249,58 +221,108 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          fetch-tags: true
 
-      # Same reset, same reason: the cut must be computed from the commit the maintainer dispatched on
-      # and no later. Otherwise a merge landing mid-cut would be swept into a release nobody saw
-      # before the tag existed — silently, and with no signal, because the cut's range is the whole
-      # accumulation since the last full release rather than the range after the newest candidate
-      # (header block above).
+      # Same reset, same reason as the preview: the release is cut from the commit the maintainer
+      # dispatched on and no later. Otherwise a merge landing mid-cut would be swept into a release
+      # nobody saw before the tag existed.
       - name: Setup | Force release branch to be at workflow sha
         run: |
           git reset --hard ${{ github.sha }}
 
-      # On the action, unlike the RC run, because the cut needs no flag: the action's default
-      # invocation *is* `semantic-release -c releaserc.toml version`, and the action is the tool's
-      # own documented example for it. This is the one path in this file that creates a real release,
-      # so it is the one path kept on the documented, pinned, pre-built path.
-      - name: Action | Semantic Version Release
-        id: release
-        uses: python-semantic-release/python-semantic-release@b700dbeb1f431a0fcc30a79f3f0869407fe07278 # v10.7.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # The committer, not the author of the pull request, for the reasons given in the RC job's
-          # committer step. Here the action sets it from these two inputs; there it is set from the
-          # repository-local git config, because the action is not in use.
-          git_committer_name: AiluraKitty
-          git_committer_email: 334750167+AiluraKitty@users.noreply.github.com
-          # Without this the action looks for `pyproject.toml`, finds nothing, and runs on defaults
-          # while appearing to work. There is no `pyproject.toml` here on purpose.
-          config_file: releaserc.toml
-          # Explicit even though it is the default, because it is the *policy*: the RC runs pass
-          # `--no-changelog`, so this job is the only one that writes `CHANGELOG.md`. Stating it here
-          # means a future change to the RC command has to argue with a visible line rather than
-          # quietly change what the changelog contains.
-          changelog: 'true'
+      # The action's committer inputs are not available now that this job calls the CLI directly, and
+      # the release commit has to be authored by the same person they would have named — not by PSR's
+      # own default, which is `semantic-release <semantic-release>`, i.e. no account at all, and not by
+      # the action's documented example, which resolves to the `actions` *organization*: an identity
+      # that is not a bot and is shared with every other workflow in every repository. `--local`
+      # writes into this checkout's `.git/config`, which outranks the global and system config, so it
+      # is the identity git resolves for the release commit.
+      - name: Setup | Configure the release committer
+        run: |
+          git config --local user.name 'AiluraKitty'
+          git config --local user.email '334750167+AiluraKitty@users.noreply.github.com'
 
-      # The wording of both `printf` branches is a human-facing contract and stays byte-for-byte
-      # stable; what changed is what the `else` branch means. A cut computes from the last FULL
-      # release, so while a candidate is pending the `feat:` that minted it is still inside the
-      # range, the level bump is at least MINOR, and this branch is unreachable — the cut cannot
-      # strand a candidate by finding nothing to release (`algorithm.py` plus `--print` runs against
-      # 10.7.0). It fires when there is NO pending candidate and nothing releasable since the last
-      # full release, which is what the second `printf` line should be read as. That line's phrasing
-      # is kept so a maintainer grepping run logs for a stable phrase still finds it.
+      - name: Setup | Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Setup | Install the release toolchain
+        run: |
+          python -m pip install "python-semantic-release==10.7.0" "towncrier==26.9.0"
+
+      # The changelog is written BEFORE the version is stamped, and the version is computed first so
+      # towncrier can be given it. Both halves are deliberate and neither order is arbitrary:
+      #
+      #   1. Compute the version with `--print`, which writes nothing.
+      #   2. Build the changelog with that version. towncrier rewrites CHANGELOG.md and DELETES the
+      #      fragments it consumed, which is what starts the next release's accumulation.
+      #   3. Stage both, and let PSR commit them via `assets` in releaserc.toml, then tag and release.
+      #
+      # If towncrier ran after the tag it would leave CHANGELOG.md modified in a runner that is about
+      # to be discarded, and the tag would point at a commit whose changelog still describes the
+      # previous release.
+      - name: Cut | Write the changelog, then release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          last_full="$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -v -- '-rc' | head -n 1)"
+          version="$(semantic-release -c releaserc.toml version --print 2>/dev/null | tail -n 1)"
+
+          # Refuse an empty cut rather than publishing an empty release. A cut dispatched when there
+          # is nothing releasable would otherwise tag a version that already exists, and the tool
+          # would report success while writing nothing — the same class of green-but-wrong run this
+          # repository keeps guarding against.
+          if [ "$version" = "${last_full#v}" ]; then
+            printf 'cut refused: nothing releasable since %s, so %s would be a duplicate tag\n' \
+              "$last_full" "$version"
+            exit 1
+          fi
+
+          towncrier build --config towncrier.toml --version "$version" --yes
+
+          # `git add -A` rather than naming the two paths: towncrier deletes fragments as well as
+          # writing the changelog, and the deletions are part of the release. `assets` in
+          # releaserc.toml is what makes PSR include them in the release commit.
+          git add -A
+
+          # The releaser runs after the changelog is staged, so its commit carries it. The changelog
+          # it would otherwise write is suppressed with `--no-changelog`, which is the same thing the
+          # action's `changelog` input did before this job stopped using the action. Two changelog
+          # writers in one release is exactly the arrangement that produced an empty v1.0.6.
+          semantic-release -c releaserc.toml version --no-changelog
+          status=$?
+
+          # The tool computes the version again, and it must arrive at the number towncrier already
+          # wrote into the changelog. Nothing changed between the two runs, so it must; if it ever
+          # does not, the published changelog would describe a version that was not released. Compare
+          # rather than trust.
+          tag="$(git tag --points-at HEAD | head -n 1 | tr -d '[:space:]')"
+          if [ "$tag" != "v${version}" ]; then
+            printf '::error::the releaser tagged %s but the changelog says v%s\n' "${tag:-<nothing>}" "$version"
+            exit 1
+          fi
+
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'link=%s\n' "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}" >> "$GITHUB_OUTPUT"
+          printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
       - name: Report | What was released
         if: always()
         env:
-          RELEASED: ${{ steps.release.outputs.released }}
           VERSION: ${{ steps.release.outputs.version }}
           TAG: ${{ steps.release.outputs.tag }}
           LINK: ${{ steps.release.outputs.link }}
+          STATUS: ${{ steps.release.outputs.status }}
         run: |
-          if [ "$RELEASED" = true ]; then
-            printf 'finalized a release: %s as %s: %s\n' "$VERSION" "$TAG" "$LINK"
+          if [ -n "$TAG" ]; then
+            printf 'cut a release: %s as %s: %s\n' "$VERSION" "$TAG" "$LINK"
           else
-            printf 'no release was made; the level bump was NO_RELEASE\n'
-            printf 'the pending candidate was left as it was: see the log line above and RELEASING.md\n'
+            printf 'no release was made (tool exit %s); see the log above and .github/RELEASING.md\n' "${STATUS:-unknown}"
           fi
