@@ -182,6 +182,65 @@ class TargetsAreFiltered(unittest.TestCase):
         open(os.path.join(os.path.dirname(path), "a).md"), "w").close()
         self.assertEqual(mdlinkcheck.check_file(path), [])
 
+    def test_a_linked_image_checks_its_outer_target_too(self):
+        path = write(
+            """
+            # Title
+
+            [![badge](img.png)](MISSING.md)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "img.png"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(3, "MISSING.md")])
+
+    def test_a_linked_image_reports_the_image_when_only_it_is_missing(self):
+        path = write(
+            """
+            [![badge](missing.png)](README.md)
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "README.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(1, "missing.png")])
+
+    def test_a_linked_image_with_both_targets_present_is_not_reported(self):
+        path = write(
+            """
+            [![badge](img.png)](README.md)
+            """
+        )
+        directory = os.path.dirname(path)
+        open(os.path.join(directory, "img.png"), "w").close()
+        open(os.path.join(directory, "README.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [])
+
+    def test_a_linked_image_reports_both_targets_when_both_are_missing(self):
+        path = write(
+            """
+            [![badge](missing.png)](MISSING.md)
+            """
+        )
+        self.assertEqual(
+            mdlinkcheck.check_file(path),
+            # `check_file` sorts its findings, so the two line 1 targets come back ASCII order.
+            [(1, "MISSING.md"), (1, "missing.png")],
+        )
+
+    def test_a_target_reachable_twice_by_nesting_is_reported_once(self):
+        path = write(
+            """
+            [a [b](missing.md) and more](missing.md)
+            """
+        )
+        self.assertEqual(mdlinkcheck.check_file(path), [(1, "missing.md")])
+
+    def test_an_escaped_bracket_does_not_open_a_label(self):
+        path = write(
+            """
+            An escaped \\[bracket](missing.md) is text, not a link.
+            """
+        )
+        self.assertEqual(mdlinkcheck.check_file(path), [])
+
     def test_a_broken_reported_target_is_the_decoded_path(self):
         path = write(
             """
