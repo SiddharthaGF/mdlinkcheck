@@ -1,0 +1,30 @@
+# uv project configuration. This file is NOT a package definition.
+#
+# There is deliberately no `[project]` table. uv requires `project.version` whenever that table
+# exists, and this repository has nothing to version: `mdlinkcheck.py` is a flat module, not a
+# distributed package, and nothing is published from it. Omitting the table entirely is what keeps
+# uv's virtual project behaviour working here.
+#
+# The Python version is pinned in `.python-version`, not here. uv reads `requires-python` from the
+# `[project]` table, which this file deliberately does not have. Putting it under `[tool.uv]` instead
+# does not move it: that key does not exist in uv's settings schema, so uv reports it as an unknown
+# field on every command and the bound it actually applies is still the default. `.python-version` is
+# honoured, and is what makes `uv sync` fetch exactly CPython 3.13 — the version CI runs the tests
+# against.
+#
+# One warning is expected on every `uv run` and is not a fault:
+#
+#   warning: No `requires-python` value found in the workspace. Defaulting to `>=3.13`.
+#
+# It is uv reporting the same bound this repository pins by hand, and the default it picks is the one
+# `.python-version` already requires. It cannot be silenced from this file, because the only key that
+# would set `requires-python` lives in the `[project]` table this file does not have.
+#
+# There are no dependency groups. The tool is standard library only, which is what `README.md`
+# promises, and nothing else needs installing: the tests run with the interpreter, and there is no
+# release toolchain. `uv.lock` is therefore empty of packages and exists to record the same thing
+# `pyproject.toml` says, so `uv sync --locked` in CI fails on a drift rather than re-resolving.
+#
+# The uv binary itself is pinned in the workflow, not here: `astral-sh/setup-uv` installs whatever is
+# latest unless told otherwise. Dependabot does not update that input, so it ages silently and is
+# called out in `.github/dependabot.yml`.

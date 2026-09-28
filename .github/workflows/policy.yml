@@ -1,0 +1,57 @@
+name: Contribution policy
+
+# The three published gates, adopted by path at the `v1` tag. Nothing here checks out the code under
+# review: these actions read pull request metadata, so the head never reaches a runner holding a token.
+# That is also why this workflow has no fork skip, unlike the hub's own self-validation, which must
+# run `uses: ./` and therefore does need one.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  issues:
+    types: [opened]
+
+permissions: {}
+
+concurrency:
+  group: policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  branch-validation:
+    name: Branch name
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      # Reads nothing from the API, so an empty permission set is correct here, not a shortcut.
+      - uses: ailuracollective/actions/branch-validation@v1
+        with:
+          branch-types: feat,fix,docs,chore,ci,test,refactor
+
+  pull-request-policy:
+    name: Pull request policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - uses: ailuracollective/actions/pull-request@v1
+        with:
+          type-labels: feat,fix,docs,chore,ci,test,refactor
+          title-min: 15
+          title-max: 72
+          approved-label: status:approved
+          skip-actors: 'dependabot[bot]'
+
+  triage:
+    name: Issue triage
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    # The only job that writes, and the only grant of `issues: write` in this repository.
+    permissions:
+      issues: write
+    steps:
+      - uses: ailuracollective/actions/triage@v1
+        with:
+          auto-label-name: status:needs-review

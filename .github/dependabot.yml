@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Dependabot reads each `uses:` pin, compares it against the latest tag, and opens a pull request
+  # when they differ.
+  #
+  # `ci.yml` pins by commit sha. `policy.yml` pins the three `ailuracollective` actions by a moving
+  # `@v1` tag, which is a weaker pin and is deliberately not remediated here. Not because they are
+  # harmless — `actions/triage@v1` holds `issues: write` — but because a moving tag there is a
+  # conscious trade, and calling it out is more useful than silently implying every workflow in the
+  # repository is sha-pinned.
+  #
+  # It does NOT update the `version:` input on the `setup-uv` step. Dependabot does not edit an
+  # action's inputs, so that one pin has no automation behind it and will age silently. It is called
+  # out here because an unpinned uv is a real failure mode: a uv release that changed its defaults
+  # would change what CI installs.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    labels:
+      - ci
+    groups:
+      # `setup-uv` is the one action here that changes the interpreter the tests run against, so it
+      # is grouped alone for that reason, and never with `checkout`, whose bump cannot change that
+      # and which a reviewer should not have to read past to get to the pin that can.
+      uv:
+        patterns:
+          - astral-sh/setup-uv
+      checkout:
+        patterns:
+          - actions/checkout

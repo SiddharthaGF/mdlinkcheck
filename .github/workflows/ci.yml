@@ -1,0 +1,48 @@
+name: CI
+
+# Every `uses:` in here is pinned by commit sha, and a required status whose pin moves on its own
+# is a status nobody trusts. `runs-on: ubuntu-latest` does float, and that is deliberate: pinning the
+# runner image is a trade this repository has not made.
+#
+# What is pinned behind it, and how tightly, is worth being exact about. uv is pinned to an exact
+# version and `.python-version` pins the interpreter to the 3.13 *series* — not to a build. `uv sync`
+# fetches whichever 3.13.x is newest, so a patch release can change what the tests run against. For a
+# standard-library-only tool that is a small risk, and it is a deliberate trade for not maintaining a
+# patch pin that rots weekly. The dependency graph is empty by design, so `uv.lock` records no
+# packages and `--locked` is there to keep it that way rather than to pin anything.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # uv, not `setup-python`. The toolchain is pinned by `.python-version` and the dev
+      # dependencies by `uv.lock`, both committed, so a run resolves the same interpreter and the
+      # same dependency versions as every other run. The `astral-sh/setup-uv` SHA is pinned for the
+      # same reason `checkout` is, and Dependabot reads it.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # uv is pinned as well as the action. Without this, setup-uv installs whatever is latest,
+          # and a uv release that changed its defaults would change how this job installs.
+          version: "0.12.19"
+          enable-cache: true
+      - name: Install the toolchain
+        run: uv sync --locked
+      - name: Run the tests
+        run: uv run python -m unittest discover
+      - name: Check this repository's own links
+        run: uv run python mdlinkcheck.py README.md

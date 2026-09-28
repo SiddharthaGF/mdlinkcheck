@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+# uv's toolchain directory. The lock is tracked; the environment built from it is not.
+.venv/
+# Local Pi runtime state
+.atl/
