@@ -4,6 +4,16 @@
 
 ## v1.0.6 (2026-09-28)
 
+### Bug Fixes
+
+- A linked image's outer target is never checked
+  ([#28](https://github.com/SiddharthaGF/mdlinkcheck/pull/28),
+  [`4a35a8a`](https://github.com/SiddharthaGF/mdlinkcheck/commit/4a35a8aa491043b3d82cf51d4da428fc036cc54e))
+
+- The candidate run reports a version it did not release
+  ([#30](https://github.com/SiddharthaGF/mdlinkcheck/pull/30),
+  [`73c2596`](https://github.com/SiddharthaGF/mdlinkcheck/commit/73c2596960a56200223de4e662b20670e5fc7701))
+
 
 ## v1.0.5 (2026-09-28)
 
