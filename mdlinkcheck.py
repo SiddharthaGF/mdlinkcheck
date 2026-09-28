@@ -31,7 +31,9 @@ LINK_START = re.compile(r"!?\[[^\]]*\]\(")
 # A reference definition, `[label]: target`, possibly indented inside a list item. The label is
 # captured whole so a case difference between the use and the definition is the caller's problem,
 # not this tool's: the check is whether the target exists, not whether the reference resolves.
-DEFINITION = re.compile(r"^[ ]{0,3}\[([^\]]+)\]:[ \t]*(\S+)", re.MULTILINE)
+# Only the label is captured: the destination is read by `destination`, because it may be wrapped
+# in angle brackets and hold spaces, which `\S+` would cut in half.
+DEFINITION = re.compile(r"^[ ]{0,3}\[([^\]]+)\]:[ \t]*(.*)$", re.MULTILINE)
 
 # Schemes and shapes that are not this file's business. A bare `//host/path` is protocol
 # relative, and `#frag` points inside the same document.
@@ -101,6 +103,20 @@ def clean(target: str) -> str:
     return unquote(target.split("#", 1)[0].split("?", 1)[0])
 
 
+def destination(rest: str) -> str:
+    """Return the link destination at the head of `rest`, dropping any title that follows it.
+
+    Wrapped in angle brackets it is read whole, because that is how a target with spaces is
+    written: `[x]: <a b.md>`. Unwrapped it ends at the first space. A destination that is neither
+    is empty.
+    """
+    rest = rest.strip()
+    if rest.startswith("<"):
+        end = rest.find(">")
+        return rest[1:end] if end != -1 else rest[1:]
+    return rest.split()[0] if rest.split() else ""
+
+
 def iter_definitions(text: str):
     """Yield `(line_number, target)` for every reference definition, external ones excluded.
 
@@ -108,7 +124,7 @@ def iter_definitions(text: str):
     line a reader has to edit to fix it.
     """
     for match in DEFINITION.finditer(strip_code(text)):
-        target = clean(match.group(2).strip("<>"))
+        target = clean(destination(match.group(2)))
         if EXTERNAL.match(target):
             continue
         yield text.count("\n", 0, match.start()) + 1, target

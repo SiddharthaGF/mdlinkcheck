@@ -173,6 +173,26 @@ class TargetsAreFiltered(unittest.TestCase):
         open(os.path.join(os.path.dirname(path), "a b.md"), "w").close()
         self.assertEqual(mdlinkcheck.check_file(path), [(2, "no such file.md")])
 
+    def test_a_definition_target_with_spaces_is_read_whole(self):
+        path = write(
+            """
+            [ok]: <a b.md>
+            [broken]: <no such file.md>
+            [titled]: <c d.md> "the title"
+            """
+        )
+        open(os.path.join(os.path.dirname(path), "a b.md"), "w").close()
+        open(os.path.join(os.path.dirname(path), "c d.md"), "w").close()
+        self.assertEqual(mdlinkcheck.check_file(path), [(2, "no such file.md")])
+
+    def test_a_definition_target_is_read_before_its_title(self):
+        path = write(
+            """
+            [x]: missing.md "a title with spaces"
+            """
+        )
+        self.assertEqual(mdlinkcheck.check_file(path), [(1, "missing.md")])
+
     def test_an_escaped_paren_is_a_real_paren_in_the_path(self):
         path = write(
             """
