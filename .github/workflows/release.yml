@@ -52,10 +52,9 @@ jobs:
           # `semantic-release <semantic-release>`, which is no account at all, and the action's
           # documented example is `github-actions <actions@users.noreply.github.com>`, which resolves
           # to the `actions` *organization* — an identity that is not a bot and is shared with every
-          # other workflow. These are the address and name GitHub itself commits under, and a commit
-          # carrying it is linked to the bot in the log.
-          git_committer_name: github-actions[bot]
-          git_committer_email: github-actions[bot]@users.noreply.github.com
+          # other workflow.
+          git_committer_name: AiluraKitty
+          git_committer_email: 334750167+AiluraKitty@users.noreply.github.com
           # Without this the action looks for `pyproject.toml`, finds nothing, and runs on defaults
           # while appearing to work. There is no `pyproject.toml` here on purpose.
           config_file: releaserc.toml
