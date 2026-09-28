@@ -118,12 +118,22 @@ the same way:
 | `fix` | Bug Fixes | published |
 | `doc` | Documentation | published |
 | `removal` | Deprecations and Removals | published |
-| `chore` | Other Tasks | **not published** — `showcontent = false` |
+| `chore` | Other Tasks | the text is dropped, the reference is kept |
 | `misc` | Miscellaneous | published |
 
-A change nobody using the tool could observe takes `chore`. Its fragment records that the change
-happened without printing a line in the changelog, which is the point: the changelog is for the
-person using the tool, and "tidied CI" is noise in it.
+A change nobody using the tool could observe takes `chore`. Its fragment is not invisible —
+`showcontent = false` drops the sentence and keeps the reference, so the entry renders as a bare
+link:
+
+```markdown
+### Other Tasks
+
+- [#34](https://github.com/SiddharthaGF/mdlinkcheck/pull/34)
+```
+
+The work is recorded and the changelog stays a changelog rather than a build log. The obvious
+assumption is that `false` means hidden; it does not, and the distinction is worth knowing before
+someone "fixes" it.
 
 Two settings in `towncrier.toml` keep the naming honest. `issue_pattern = "\\d+"` means a fragment
 named after a branch, or `fix.fix`, fails the build instead of publishing a link to a pull request

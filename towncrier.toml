@@ -50,9 +50,19 @@ ignore = []
 # alphabetically, putting "Other Tasks" between "Features" and "Bug Fixes".
 #
 # The names are the commit types this repository already uses, so a fragment and its commit read the
-# same. A pull request that changes nothing a user can observe takes `chore`, and `chore` is the one
-# type whose content is not published: the changelog is for the person using the tool, and an entry
-# saying that CI was tidied is noise in it.
+# same. A pull request that changes nothing a user can observe takes `chore`.
+#
+# `showcontent = false` does NOT hide the fragment. It drops the sentence and keeps the reference, so
+# a `chore` fragment renders as a bare link with nothing after it:
+#
+#   ### Other Tasks
+#   - [#34](https://github.com/SiddharthaGF/mdlinkcheck/pull/34)
+#
+# That is the intent, and it is worth being precise about it, because the obvious assumption is that
+# `false` means invisible. A change nobody can observe gets a line saying only "this happened, at
+# this number": the work is recorded, and the changelog stays a changelog rather than a build log.
+# Measured rather than assumed — an earlier draft of this file claimed such an entry would not be
+# printed at all, and it is.
 [[tool.towncrier.type]]
 directory = "feat"
 name = "Features"
