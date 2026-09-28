@@ -77,6 +77,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          # The shallow default fetches no tags, and this run has to diff the tag list before and
+          # after the release to work out what it minted. The `Release | Mint a release candidate`
+          # step below spells out what goes wrong without this line; do not drop it along with the
+          # rest of the checkout options.
+          fetch-tags: true
 
       # Force the branch to be at the workflow's own sha. The branch may have moved while this run was
       # queued, and without this the releaser would sweep a push nobody judged into the release.
@@ -149,19 +154,30 @@ jobs:
           # VCS release). A second command would be at best a no-op and at worst a second attempt at
           # the same tag.
           set -uo pipefail
-          before="$(git tag --list | sort)"
+          head_before="$(git rev-parse HEAD)"
           semantic-release -c releaserc.toml version --as-prerelease --no-changelog
           status=$?
-          after="$(git tag --list | sort)"
+          head_after="$(git rev-parse HEAD)"
           # The action's `released` / `version` / `tag` / `link` outputs do not exist for a direct
-          # run, so the outcome is derived from the one thing a release cannot fake: a new tag. The
-          # diff is taken from the tag list, not from the tool's stdout, because a job that infers its
-          # own success from a log line is a job that reports success on a log line.
-          # `comm -13` prints the lines unique to the second file, each prefixed with a TAB, hence
-          # the `tr`. A run mints at most one tag; `head -n 1` keeps a hypothetical second one from
-          # producing a two-word version string.
-          new_tag="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") \
-            | head -n 1 | tr -d '\t')"
+          # run, so the outcome is derived from what a release necessarily leaves behind: a commit
+          # and a tag on it.
+          #
+          # It used to be derived by diffing the tag list before and after, and that was wrong. The
+          # checkout is shallow and fetches no tags (`fetch-tags: false`, `--depth=1`, `--no-tags`),
+          # so the "before" list was EMPTY, and `semantic-release` then unshallowed the repository
+          # itself, which brought in every tag in the project's history. The diff therefore
+          # contained all of them and the first one alphabetically won: a run that had really
+          # minted `v1.0.6-rc.1` reported `1.0.0 as v1.0.0`. Do not go back to the tag list.
+          #
+          # HEAD is the signal, and it has to be *movement*, not presence. This job pushes its own
+          # release commit to `main`, which triggers another run of this workflow; that run checks
+          # out a commit that already carries a tag, and finding a tag on HEAD there would be a
+          # release that never happened. PSR commits exactly when it releases, so a moved HEAD is
+          # the one condition that is true when it released and false when it did not.
+          new_tag=""
+          if [ "$head_after" != "$head_before" ]; then
+            new_tag="$(git tag --points-at HEAD | head -n 1 | tr -d '[:space:]')"
+          fi
           if [ -n "$new_tag" ]; then
             printf 'released=true\n' >> "$GITHUB_OUTPUT"
             # `tag_format = "v{version}"` is the whole of the tag's shape, so the version is the tag
