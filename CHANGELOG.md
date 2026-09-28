@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.5 (2026-09-28)
+
+### Bug Fixes
+
+- Update git committer information in release workflow
+  ([`01e1e32`](https://github.com/SiddharthaGF/mdlinkcheck/commit/01e1e32de2e077d49e9e3d3a5b680ae89d5afa34))
+
+
 ## v1.0.4 (2026-09-27)
 
 ### Bug Fixes
