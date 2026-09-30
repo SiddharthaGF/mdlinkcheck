@@ -27,6 +27,13 @@ jobs:
       - uses: ailuracollective/actions/branch-validation@v1
         with:
           branch-types: feat,fix,docs,chore,ci,test,refactor
+          # Required here as well as on the pull request policy, and NOT redundant. Dependabot names
+          # its branches `dependabot/<ecosystem>/<dep>-<version>`, which fails this check twice over:
+          # the type segment is `github_actions` or `npm`, neither of which is in `branch-types`, and
+          # the owner segment `dependabot` can never equal the author login `dependabot[bot]`. A
+          # dependabot pull request cannot rename its own branch, so without this the gate is
+          # unsatisfiable rather than merely strict.
+          skip-actors: 'dependabot[bot]'
 
   pull-request-policy:
     name: Pull request policy
@@ -38,7 +45,11 @@ jobs:
     steps:
       - uses: ailuracollective/actions/pull-request@v1
         with:
-          type-labels: feat,fix,docs,chore,ci,test,refactor
+          # `breaking-change` is a type label but deliberately NOT a branch type. A breaking change
+          # is still a feat or a fix: it is `siddharthagf/feat/drop-python-39` with a `!` on the
+          # title, labelled `breaking-change` so it is findable. Allowing a `breaking-change` branch
+          # segment would give a second, competing way to say the same thing.
+          type-labels: feat,fix,docs,chore,ci,test,refactor,breaking-change
           title-min: 15
           title-max: 72
           approved-label: status:approved
